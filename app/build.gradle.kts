@@ -88,7 +88,8 @@ dependencies {
     implementation ("androidx.compose.material3:material3")
 
     // ARCore
-    implementation ("io.github.sceneview:arsceneview:1.2.0")
+    implementation ("com.google.ar:core:1.40.0")
+    implementation ("io.github.sceneview:arsceneview:2.2.1")
 
     implementation ("androidx.activity:activity-compose:1.7.2")
     implementation ("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1")

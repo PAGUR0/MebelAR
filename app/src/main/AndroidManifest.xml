@@ -4,8 +4,18 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Камера обязательна -->
     <uses-feature android:name="android.hardware.camera" android:required="true" />
-    <uses-feature android:name="android.hardware.camera.ar" android:required="true" />
+
+    <!-- ARCore опционален -->
+    <uses-feature android:name="android.hardware.camera.ar" android:required="false" />
+
+    <!-- Указываем ARCore как необязательный, чтобы работало без него -->
+    <meta-data
+        android:name="com.google.ar.core"
+        android:value="optional"
+        tools:replace="android:value" />
 
     <application
         android:allowBackup="true"
@@ -18,18 +28,11 @@
         android:theme="@style/Theme.MebelAR"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true"
-        tools:targetApi="31">
-
-        <!-- Исправленный meta-data с tools:replace -->
-        <meta-data
-            android:name="com.google.ar.core"
-            android:value="required"
-            tools:replace="android:value" />
+        tools:targetApi="tiramisu">
 
         <activity
             android:name=".presentation.activity.MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.MebelAR">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -37,14 +40,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Удаляем intent-filter для ARActivity -->
         <activity
-            android:name="AR"
+            android:name=".presentation.ar.AR"
             android:exported="true"
-            android:label="AR Activity"
-            android:theme="@style/Theme.MebelAR"
-            tools:ignore="MissingClass">
-        </activity>
+            android:theme="@style/Theme.MebelAR" />
 
     </application>
 

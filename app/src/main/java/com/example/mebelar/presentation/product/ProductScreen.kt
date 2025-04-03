@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mebelar.domain.model.ProductDetailData
+import com.example.mebelar.presentation.ar.AR
 import com.example.mebelar.ui.theme.ErrorScreen
 import com.example.mebelar.ui.theme.ImageCarousel
 import com.example.mebelar.ui.theme.LoadingScreen
@@ -157,7 +158,7 @@ fun ProductView(product: ProductDetailData, onBackClick: () -> Unit, modifier: M
                             }
                             Button(
                                 onClick = {
-                                    val intent = Intent(context, AR::class.java)
+                                    val intent = Intent(context,AR::class.java)
                                     context.startActivity(intent)
                                 },
                                 modifier = Modifier.weight(1f)
