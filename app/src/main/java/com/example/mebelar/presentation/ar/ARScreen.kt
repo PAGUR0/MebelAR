@@ -1,149 +1,113 @@
 package com.example.mebelar.presentation.ar
 
-import android.annotation.SuppressLint
-import android.os.Bundle
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import android.provider.MediaStore
 import android.util.Log
 import android.view.MotionEvent
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.ExperimentalComposeUiApi
+import android.view.PixelCopy
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import com.example.mebelar.ui.theme.MebelARTheme
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.navigation.NavController
+import com.google.android.filament.Engine
+import com.google.ar.core.Anchor
 import com.google.ar.core.Config
-import com.google.ar.core.Plane
-import com.google.ar.core.Pose
+import com.google.ar.core.Frame
 import com.google.ar.core.TrackingFailureReason
-import com.google.ar.core.TrackingState
-import dev.romainguy.kotlin.math.Float3
 import io.github.sceneview.ar.ARScene
+import io.github.sceneview.ar.arcore.createAnchorOrNull
+import io.github.sceneview.ar.arcore.isValid
+import io.github.sceneview.ar.getDescription
 import io.github.sceneview.ar.node.AnchorNode
 import io.github.sceneview.ar.rememberARCameraNode
+import io.github.sceneview.loaders.MaterialLoader
+import io.github.sceneview.loaders.ModelLoader
+import io.github.sceneview.node.CubeNode
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.Node
 import io.github.sceneview.rememberCollisionSystem
 import io.github.sceneview.rememberEngine
+import io.github.sceneview.rememberMaterialLoader
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
+import io.github.sceneview.rememberOnGestureListener
 import io.github.sceneview.rememberView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.ByteBuffer
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
+import android.Manifest
 
-private const val kModelFile = "cursor.glb"
-private const val kModelsFile = "cursor.glb"
+@Composable
+fun ARScreenInitializer(url: String, navController: NavController, modifier: Modifier) {
+    val context = LocalContext.current
+    val loadingState = remember { mutableStateOf(false) }
+    val modelUrl = remember { mutableStateOf(url) }
 
-
-class AR : ComponentActivity() {
-
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            MebelARTheme {
-                ARScreen(kModelFile, kModelsFile)
-            }
-        }
-    }
+    ARScreen(modelUrl.value, navController, modifier)
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
-@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
-fun ARScreen(modelUrl: String, placedModelUrl: String) { // Добавляем URL для второй модели
-    val context = LocalContext.current
-    val displayMetrics = context.resources.displayMetrics
-    val screenWidth = displayMetrics.widthPixels
-    val screenHeight = displayMetrics.heightPixels
-
-    val screenCenterX = (screenWidth / 2).toFloat()
-    val screenCenterY = (screenHeight / 2).toFloat()
-
-    Box(modifier = Modifier.fillMaxSize()) {
+fun ARScreen(modelUrl: String, navController: NavController, modifier: Modifier) {
+    Box(modifier = modifier.fillMaxSize()) {
+        val context = LocalContext.current
         val engine = rememberEngine()
         val modelLoader = rememberModelLoader(engine)
+        val materialLoader = rememberModelLoader(engine)
         val cameraNode = rememberARCameraNode(engine)
         val childNodes = rememberNodes()
         val view = rememberView(engine)
         val collisionSystem = rememberCollisionSystem(view)
 
-        val trackingFailureReason = remember { mutableStateOf<TrackingFailureReason?>(null) }
-        val modelNode = remember { mutableStateOf<ModelNode?>(null) } // Курсор
-        val placedModelNode = remember { mutableStateOf<ModelNode?>(null) } // Модель по нажатию
-        val isPlaced = remember { mutableStateOf<Boolean>(false) } // Флаг размещения
-        var session = remember { mutableStateOf<com.google.ar.core.Session?>(null) }
-
-        LaunchedEffect(modelUrl, placedModelUrl) { // Зависимости от modelUrl и placedModelUrl
-            // Загружаем модель курсора
-            modelLoader.loadModelInstance(modelUrl)?.let { modelInstance ->
-                if (modelNode.value == null) { // Проверяем, не загружена ли уже модель
-                    modelNode.value = ModelNode(
-                        modelInstance = modelInstance,
-                        autoAnimate = true,
-                        scaleToUnits = 1.0f
-                    ).apply {
-                        isVisible = true // Курсор виден изначально
-                    }
-                    childNodes.add(modelNode.value!!) // Добавляем модель курсора в сцену
-                }
-            } ?: run {
-                Log.e("ModelLoader", "Failed to load cursor model: $modelUrl") // Обработка ошибки загрузки
-            }
-
-            // Загружаем модель размещённого объекта
-            modelLoader.loadModelInstance(placedModelUrl)?.let { modelInstance ->
-                if (placedModelNode.value == null) { // Проверяем, не загружена ли уже модель
-                    placedModelNode.value = ModelNode(
-                        modelInstance = modelInstance,
-                        autoAnimate = true,
-                        scaleToUnits = 1.0f
-                    ).apply {
-                        isVisible = false // Изначально скрыта
-                    }
-                    childNodes.add(placedModelNode.value!!) // Добавляем модель размещённого объекта в сцену
-                }
-            } ?: run {
-                Log.e("ModelLoader", "Failed to load placed model: $placedModelUrl") // Обработка ошибки загрузки
-            }
-        }
-
+        val selectedAnchorNode = remember { mutableStateOf<AnchorNode?>(null) }
+        val isFirstModelAdded = remember { mutableStateOf(false) }
+        val isDuplicateModeEnabled = remember { mutableStateOf(false) }
+        val currentModelBuffer = remember { mutableStateOf<ByteBuffer?>(null) }
+        var planeRenderer by remember { mutableStateOf(true) }
+        var trackingFailureReason by remember { mutableStateOf<TrackingFailureReason?>(null) }
+        var frame by remember { mutableStateOf<Frame?>(null) }
+        var isUiVisible by remember { mutableStateOf(true) }
+        var sceneViewRef by remember { mutableStateOf<io.github.sceneview.SceneView?>(null) }
+        var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
         ARScene(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInteropFilter { motionEvent ->
-                    if (!isPlaced.value && motionEvent.action == MotionEvent.ACTION_DOWN) {
-                        modelNode.value?.let { cursor ->
-                            val cursorPosition = cursor.worldPosition
-                            session.let { session ->
-                                placedModelNode.value?.let { placedModel ->
-                                    // Создаем Pose на основе текущей позиции курсора
-                                    val pose = Pose(
-                                        floatArrayOf(cursorPosition.x, cursorPosition.y, cursorPosition.z),
-                                        floatArrayOf(0f, 0f, 0f, 1f) // Без вращения
-                                    )
-                                    val anchor = session.value!!.createAnchor(pose)
-                                    val anchorNode = AnchorNode(engine, anchor).apply {
-                                        childNodes.add(this) // Добавляем anchorNode в сцену
-                                        placedModel.parent = this // Привязываем модель к anchorNode
-                                        placedModel.worldPosition = cursorPosition // Устанавливаем позицию курсора
-                                        placedModel.isVisible = true
-                                    }
-
-                                    // Скрываем курсор
-                                    cursor.isVisible = false
-                                    isPlaced.value = true
-                                }
-                            }
-                            true // Событие обработано
-                        } ?: false
-                    } else {
-                        false // Пропускаем событие
+                .onGloballyPositioned { coordinates ->
+                    coordinates.parentLayoutCoordinates?.let { parent ->
+                        val view = parent as? io.github.sceneview.SceneView
+                        sceneViewRef = view
+                        Log.d("ARScreen", "sceneViewRef initialized: ${view != null}")
                     }
                 },
             childNodes = childNodes,
@@ -152,118 +116,437 @@ fun ARScreen(modelUrl: String, placedModelUrl: String) { // Добавляем U
             modelLoader = modelLoader,
             collisionSystem = collisionSystem,
             sessionConfiguration = { session, config ->
-                config.depthMode = if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
-                    Config.DepthMode.AUTOMATIC
-                } else {
-                    Config.DepthMode.DISABLED
-                }
+                config.depthMode =
+                    if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC))
+                        Config.DepthMode.AUTOMATIC
+                    else Config.DepthMode.DISABLED
                 config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
             },
             cameraNode = cameraNode,
-            onSessionUpdated = { session, updatedFrame ->
-                // Перемещаем курсор только если модель еще не размещена
-                if (!isPlaced.value) {
-                    val hitResultList = updatedFrame.hitTest(screenCenterX, screenCenterY)
-
-                    val hitResult = hitResultList.firstOrNull { hit ->
-                        hit.trackable is Plane && (hit.trackable as Plane).type == Plane.Type.HORIZONTAL_UPWARD_FACING
-                    }
-
-                    hitResult?.let { hit ->
-                        val plane = hit.trackable as Plane
-                        if (plane.trackingState == TrackingState.TRACKING) {
-                            val hitPose = hit.hitPose
-                            modelNode.value?.apply {
-                                val currentPosition = worldPosition
-                                val targetPosition = Float3(hitPose.tx(), hitPose.ty(), hitPose.tz())
-                                worldPosition = Float3(
-                                    currentPosition.x + (targetPosition.x - currentPosition.x) * 0.1f,
-                                    currentPosition.y + (targetPosition.y - currentPosition.y) * 0.1f,
-                                    currentPosition.z + (targetPosition.z - currentPosition.z) * 0.1f
+            planeRenderer = planeRenderer,
+            onTrackingFailureChanged = { trackingFailureReason = it },
+            onSessionUpdated = { _, updatedFrame ->
+                frame = updatedFrame
+                Log.d("ARScreen", "Frame updated: ${updatedFrame.timestamp}")
+            },
+            onGestureListener = rememberOnGestureListener(
+                onSingleTapConfirmed = { motionEvent: MotionEvent, node: Node? ->
+                    if (node != null) {
+                        selectedAnchorNode.value = node.findAnchorNode()
+                        true
+                    } else {
+                        val canAddModel = !isFirstModelAdded.value || isDuplicateModeEnabled.value
+                        if (canAddModel) {
+                            val hitResults = frame?.hitTest(motionEvent.x, motionEvent.y)
+                            hitResults?.firstOrNull {
+                                it.isValid(depthPoint = false, point = false)
+                            }?.createAnchorOrNull()?.let { anchor ->
+                                planeRenderer = false
+                                childNodes += createAnchorNode(
+                                    engine = engine,
+                                    modelLoader = modelLoader,
+                                    anchor = anchor,
+                                    modelUrl = modelUrl,
+                                    context = context,
+                                    isDuplicate = isDuplicateModeEnabled.value,
+                                    currentModelBuffer = currentModelBuffer
                                 )
+                                isFirstModelAdded.value = true
+                                isDuplicateModeEnabled.value = false
                             }
+                        }
+                        selectedAnchorNode.value = null
+                        false
+                    }
+                }
+            )
+        )
+
+        // Отображение захваченного скриншота (для теста)
+        if (capturedBitmap != null) {
+            Image(
+                bitmap = capturedBitmap!!.asImageBitmap(),
+                contentDescription = "Captured screenshot",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .align(Alignment.TopCenter)
+                    .zIndex(2f)
+            )
+        }
+
+        // Текст ошибки отслеживания
+        if (isUiVisible) {
+            Text(
+                modifier = Modifier
+                    .systemBarsPadding()
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp, start = 32.dp, end = 32.dp)
+                    .zIndex(1f),
+                textAlign = TextAlign.Center,
+                fontSize = 28.sp,
+                color = Color.White,
+                text = trackingFailureReason?.getDescription(LocalContext.current) ?: ""
+            )
+        }
+
+        // Кнопка возврата (слева сверху)
+        if (isUiVisible) {
+            IconButton(
+                onClick = { navController.navigateUp() },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                    .zIndex(1f)
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Назад",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // Кнопка переключения отображения поверхностей (справа сверху)
+        if (isUiVisible) {
+            IconButton(
+                onClick = { planeRenderer = !planeRenderer },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                    .zIndex(1f)
+            ) {
+                Icon(
+                    if (planeRenderer) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = if (planeRenderer) "Скрыть поверхности" else "Показать поверхности",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // Панель управления (внизу, выше нижней навигации)
+        if (isUiVisible && selectedAnchorNode.value != null) {
+            ControlPanel(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 80.dp)
+                    .zIndex(1f),
+                onRotateLeft = {
+                    selectedAnchorNode.value?.getFirstModelNode()?.applyAccumulatedRotationY(-90f)
+                },
+                onRotateRight = {
+                    selectedAnchorNode.value?.getFirstModelNode()?.applyAccumulatedRotationY(90f)
+                },
+                onDuplicate = {
+                    isDuplicateModeEnabled.value = true
+                    Log.d("ARScreen", "Duplicate mode enabled")
+                },
+                onDelete = {
+                    val anchorNode = selectedAnchorNode.value?.findAnchorNode()
+                    if (anchorNode != null) {
+                        childNodes -= anchorNode
+                        selectedAnchorNode.value = null
+                        isDuplicateModeEnabled.value = false
+                        if (childNodes.isEmpty()) {
+                            isFirstModelAdded.value = false
+                            currentModelBuffer.value = null
                         }
                     }
                 }
-            },
-        )
+            )
+        }
+
+        // Кнопка скриншота (в центре снизу)
+        if (isUiVisible) {
+            IconButton(
+                onClick = {
+                    isUiVisible = false
+                    CoroutineScope(Dispatchers.Main).launch {
+                        kotlinx.coroutines.delay(1000) // Увеличенная задержка для рендеринга
+                        if (sceneViewRef == null || !sceneViewRef!!.isAttachedToWindow) {
+                            Log.e("ARScreen", "SceneView is not attached or initialized")
+                            isUiVisible = true
+                            return@launch
+                        }
+                        Log.d("ARScreen", "Attempting to capture screenshot")
+                        captureSceneView(sceneViewRef!!, context) { bitmap: Bitmap? ->
+                            bitmap?.let {
+                                capturedBitmap = it // Отобразить для проверки
+                                saveBitmapToGallery(context, it)
+                                Log.d("ARScreen", "Capture successful: ${bitmap.width}x${bitmap.height}")
+                            } ?: Log.e("ARScreen", "Failed to capture bitmap")
+                            isUiVisible = true
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 48.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                    .zIndex(1f)
+            ) {
+                Icon(
+                    Icons.Default.Camera,
+                    contentDescription = "Сделать скриншот",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
     }
 }
 
-// Класс для результата пересечения
-data class IntersectionResult(
-    val point: FloatArray, // Точка пересечения в мировых координатах
-    val distance: Float    // Расстояние от начала луча до точки пересечения
-)
-
-// Класс для луча
-data class Ray(
-    val origin: FloatArray,    // Начальная точка луча (x, y, z)
-    val direction: FloatArray  // Направление луча (x, y, z), нормализованное
-)
-
-// Метод для выполнения теста пересечения луча с плоскостью
-fun Plane.hitTest(ray: Ray): IntersectionResult? {
-    // Получаем нормаль плоскости из centerPose (предполагаем, что это кватернион и нормаль вдоль Y)
-    val planeNormal = floatArrayOf(0f, 1f, 0f) // Горизонтальная плоскость (нормаль вверх)
-    val planePoint = floatArrayOf(
-        centerPose.tx(),
-        centerPose.ty(),
-        centerPose.tz()
-    ) // Точка на плоскости (центр)
-
-    // Скалярное произведение нормали плоскости и направления луча
-    val denominator = planeNormal[0] * ray.direction[0] +
-            planeNormal[1] * ray.direction[1] +
-            planeNormal[2] * ray.direction[2]
-
-    // Если знаменатель близок к 0, луч параллелен плоскости — пересечения нет
-    if (kotlin.math.abs(denominator) < 0.0001f) {
-        return null
+private fun captureSceneView(
+    sceneView: io.github.sceneview.SceneView,
+    context: Context,
+    onResult: (Bitmap?) -> Unit
+) {
+    Log.d("ARScreen", "Starting captureSceneView")
+    val width = sceneView.width
+    val height = sceneView.height
+    Log.d("ARScreen", "SceneView dimensions: $width x $height")
+    if (width <= 0 || height <= 0) {
+        Log.e("ARScreen", "Invalid SceneView dimensions: $width x $height")
+        onResult(null)
+        return
     }
 
-    // Вектор от начала луча до точки на плоскости
-    val w = floatArrayOf(
-        planePoint[0] - ray.origin[0],
-        planePoint[1] - ray.origin[1],
-        planePoint[2] - ray.origin[2]
-    )
-
-    // Скалярное произведение w и нормали
-    val numerator = w[0] * planeNormal[0] +
-            w[1] * planeNormal[1] +
-            w[2] * planeNormal[2]
-
-    // Расстояние вдоль луча до точки пересечения
-    val t = numerator / denominator
-
-    // Если t < 0, пересечение находится позади начала луча — игнорируем
-    if (t < 0f) {
-        return null
+    val surfaceView = sceneView as? android.view.SurfaceView
+    if (surfaceView == null) {
+        Log.e("ARScreen", "SceneView is not a SurfaceView")
+        onResult(null)
+        return
     }
 
-    // Вычисляем точку пересечения
-    val intersectionPoint = floatArrayOf(
-        ray.origin[0] + t * ray.direction[0],
-        ray.origin[1] + t * ray.direction[1],
-        ray.origin[2] + t * ray.direction[2]
-    )
+    if (!surfaceView.holder.surface.isValid) {
+        Log.e("ARScreen", "Surface is not valid")
+        onResult(null)
+        return
+    }
 
-    // Проверяем, находится ли точка внутри границ плоскости (если плоскость конечная)
-    if (this.type == Plane.Type.HORIZONTAL_UPWARD_FACING) {
-        val extentX = this.extentX // Ширина плоскости по X
-        val extentZ = this.extentZ // Ширина плоскости по Z
-        val dx = intersectionPoint[0] - planePoint[0]
-        val dz = intersectionPoint[2] - planePoint[2]
-        if (kotlin.math.abs(dx) > extentX / 2 || kotlin.math.abs(dz) > extentZ / 2) {
-            return null // Точка вне границ плоскости
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val handlerThread = HandlerThread("PixelCopier")
+    handlerThread.start()
+
+    try {
+        PixelCopy.request(surfaceView, bitmap, { copyResult ->
+            Log.d("ARScreen", "PixelCopy result: $copyResult")
+            when (copyResult) {
+                PixelCopy.SUCCESS -> {
+                    Log.d("ARScreen", "PixelCopy successful")
+                    onResult(bitmap)
+                }
+                else -> {
+                    Log.e("ARScreen", "PixelCopy failed with code: $copyResult")
+                    onResult(null)
+                }
+            }
+            handlerThread.quitSafely()
+        }, Handler(handlerThread.looper))
+    } catch (e: Exception) {
+        Log.e("ARScreen", "PixelCopy exception: ${e.message}", e)
+        onResult(null)
+        handlerThread.quitSafely()
+    }
+}
+
+// Сохранение скриншота в галерею
+private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
+    Log.d("ARScreen", "Starting saveBitmapToGallery with bitmap: ${bitmap.width}x${bitmap.height}")
+
+    // Проверка разрешения на запись для Android 9 и ниже
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("ARScreen", "Storage permission not granted")
+            return
         }
     }
 
-    // Возвращаем результат
-    return IntersectionResult(
-        point = intersectionPoint,
-        distance = t
+    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+    val displayName = "AR_Screenshot_$timeStamp.jpg"
+
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/AR_Screenshots")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+    }
+
+    val resolver = context.contentResolver
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+    if (uri == null) {
+        Log.e("ARScreen", "Failed to insert into MediaStore: uri is null")
+        return
+    }
+
+    try {
+        resolver.openOutputStream(uri)?.use { outputStream ->
+            val success = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+            Log.d("ARScreen", "Bitmap compress result: $success")
+        } ?: run {
+            Log.e("ARScreen", "Failed to open OutputStream")
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+        }
+        Log.d("ARScreen", "Screenshot saved to gallery: $displayName")
+    } catch (e: Exception) {
+        Log.e("ARScreen", "Error saving screenshot: ${e.message}", e)
+    }
+}
+
+@Composable
+fun ControlPanel(
+    modifier: Modifier = Modifier,
+    onRotateLeft: () -> Unit,
+    onRotateRight: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onRotateLeft) {
+                Icon(Icons.Default.RotateLeft, contentDescription = "Повернуть влево")
+            }
+            IconButton(onClick = onRotateRight) {
+                Icon(Icons.Default.RotateRight, contentDescription = "Повернуть вправо")
+            }
+            IconButton(onClick = onDuplicate) {
+                Icon(Icons.Default.ContentCopy, contentDescription = "Дублировать")
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Удалить")
+            }
+        }
+    }
+}
+
+fun Node.getFirstModelNode(): ModelNode? =
+    this.childNodes.filterIsInstance<ModelNode>().firstOrNull()
+
+fun Node.findAnchorNode(): AnchorNode? {
+    var current: Node? = this
+    while (current != null && current !is AnchorNode) {
+        current = current.parent
+    }
+    return current as? AnchorNode
+}
+
+fun ModelNode.applyAccumulatedRotationY(deltaDegrees: Float) {
+    val newRotation = this.rotation.copy(
+        y = this.rotation.y + deltaDegrees
     )
+    this.rotation = newRotation
+}
+
+fun createAnchorNode(
+    engine: Engine,
+    modelLoader: ModelLoader,
+    anchor: Anchor,
+    modelUrl: String,
+    context: Context,
+    isDuplicate: Boolean,
+    currentModelBuffer: MutableState<ByteBuffer?>
+): AnchorNode {
+    val anchorNode = AnchorNode(engine = engine, anchor = anchor)
+
+    Log.d("ARScreen", "Attempting to load model from URL: $modelUrl, isDuplicate: $isDuplicate")
+
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val buffer = if (isDuplicate && currentModelBuffer.value != null) {
+                currentModelBuffer.value!!.rewind()
+            } else {
+                val connection = URL(modelUrl).openConnection() as HttpURLConnection
+                connection.requestMethod = "HEAD"
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    withContext(Dispatchers.Main) {
+                        Log.e("ARScreen", "URL is not accessible. HTTP response code: $responseCode")
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    Log.d("ARScreen", "URL is accessible: $modelUrl")
+                }
+
+                val byteArrayOutputStream = ByteArrayOutputStream()
+                val inputStream = URL(modelUrl).openStream()
+                inputStream.copyTo(byteArrayOutputStream)
+                inputStream.close()
+                val byteArray = byteArrayOutputStream.toByteArray()
+                ByteBuffer.allocateDirect(byteArray.size).put(byteArray).rewind()
+            }
+
+            withContext(Dispatchers.Main) {
+                try {
+                    val modelInstance = modelLoader.createModelInstance(buffer)
+                    if (modelInstance == null) {
+                        Log.e("ARScreen", "Model instance is null for URL: $modelUrl")
+                        return@withContext
+                    }
+
+                    Log.d("ARScreen", "Model instance created successfully from URL: $modelUrl")
+
+                    if (!isDuplicate) {
+                        currentModelBuffer.value = buffer as ByteBuffer?
+                    }
+
+                    val modelNode = ModelNode(modelInstance = modelInstance).apply {
+                        isEditable = true
+                        editableScaleRange = 1f..1f
+                    }
+
+                    val boundingBoxNode = CubeNode(
+                        engine,
+                        size = modelNode.extents,
+                        center = modelNode.center,
+                    ).apply {
+                        isVisible = false
+                    }
+
+                    modelNode.addChildNode(boundingBoxNode)
+                    anchorNode.addChildNode(modelNode)
+
+                    listOf(modelNode, anchorNode).forEach {
+                        it.onEditingChanged = { editingTransforms ->
+                            boundingBoxNode.isVisible = editingTransforms.isNotEmpty()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("ARScreen", "Error creating model instance from $modelUrl: ${e.message}", e)
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Log.e("ARScreen", "Error downloading or processing model from $modelUrl: ${e.message}", e)
+            }
+        }
+    }
+
+    return anchorNode
 }

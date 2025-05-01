@@ -89,9 +89,14 @@ dependencies {
 
     // ARCore
     implementation ("com.google.ar:core:1.40.0")
-    implementation ("io.github.sceneview:arsceneview:2.2.1")
+    implementation ("io.github.sceneview:arsceneview:2.3.0")
 
     implementation ("androidx.activity:activity-compose:1.7.2")
     implementation ("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    implementation("dev.romainguy:kotlin-math:1.5.3")
+
+    implementation ("com.google.guava:guava:31.1-android")
+
 }

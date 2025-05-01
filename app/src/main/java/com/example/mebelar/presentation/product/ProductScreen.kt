@@ -5,107 +5,122 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mebelar.domain.model.ProductDetailData
-import com.example.mebelar.presentation.ar.AR
+import com.example.mebelar.ui.state.ScreenState
 import com.example.mebelar.ui.theme.ErrorScreen
-import com.example.mebelar.ui.theme.ImageCarousel
+import androidx.compose.ui.platform.LocalContext
+import com.example.mebelar.ui.theme.ImageViewProduct
 import com.example.mebelar.ui.theme.LoadingScreen
-import com.example.mebelar.ui.theme.ScreenState
+import kotlinx.coroutines.launch
 
 @Composable
 fun ProductScreen(
     viewModel: ProductViewModel,
     onBackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    openAR: (String) -> Unit,
+    snackbarHostState: SnackbarHostState
 ) {
-    val product by viewModel.product.observeAsState()
-    val screenState by viewModel.screenState.observeAsState(ScreenState.Idle)
+    val product by viewModel.product.collectAsState()
+    val screenState by viewModel.screenState.collectAsState()
 
-    viewModel.fetchProductDetail()
+    LaunchedEffect(Unit) {
+        viewModel.fetchProductDetail()
+    }
 
     when (screenState) {
         is ScreenState.Loading -> {
             LoadingScreen()
         }
-        is ScreenState.Success -> {
-            ProductView(product!!, onBackClick, modifier = modifier)
+        is ScreenState.Idle -> {
+            ProductView(
+                product = product!!,
+                onBackClick = onBackClick,
+                modifier = modifier,
+                clickFavorite = {
+                    viewModel.setFavorite(snackbarHostState)
+                },
+                openAR = openAR,
+                snackbarHostState = snackbarHostState
+            )
         }
         is ScreenState.Error -> {
             ErrorScreen(
                 onRetry = { viewModel.fetchProductDetail() },
-
             )
         }
-        is ScreenState.Idle -> {}
     }
 }
 
 @Composable
-fun getScreenWidthInDp(): Dp {
+fun ProductView(
+    product: ProductDetailData,
+    onBackClick: () -> Unit,
+    modifier: Modifier,
+    clickFavorite: () -> Unit,
+    openAR: (String) -> Unit,
+    snackbarHostState: SnackbarHostState
+) {
     val context = LocalContext.current
-    val density = LocalDensity.current.density
+    val coroutineScope = rememberCoroutineScope()
 
-    // Получаем ширину экрана в пикселях
-    val displayMetrics = context.resources.displayMetrics
-    val screenWidthPx = displayMetrics.widthPixels
-
-    // Преобразуем пиксели в dp и возвращаем
-    return (screenWidthPx / density).dp
-}
-
-@Composable
-fun ProductView(product: ProductDetailData, onBackClick: () -> Unit, modifier: Modifier) {
-    LazyColumn(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        item {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+        ) {
+            item {
+                val isFavorite = product.favorite
 
-            // Карусель изображений
-            ImageCarousel(
-                product.images,
-                Modifier.height(getScreenWidthInDp())
-            )
-                // Производитель и название
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                ImageViewProduct(product.images, Modifier.wrapContentHeight(), isFavorite, clickFavorite)
+
+                Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                    PriceBox(product.price, product.discountPrice)
 
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
                     ) {
-                        Column(
-                            Modifier.padding(16.dp, 0.dp)
-                        ) {
+                        Column(Modifier.padding(4.dp, 0.dp)) {
                             Text(
                                 text = product.market,
                                 fontSize = 14.sp,
@@ -125,64 +140,58 @@ fun ProductView(product: ProductDetailData, onBackClick: () -> Unit, modifier: M
                         }
                     }
 
-                    // Бокс с ценами
-                    PriceBox(product.price, product.discountPrice)
-
-                    // Описание
                     DescriptionBox(product.description)
 
-                    // Характеристики
                     CharacteristicsBox(product.characteristics)
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(72.dp))
+            }
+        }
 
-                    val context = LocalContext.current
-
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.onPrimary
-                    ){
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.onPrimary)
-                                .padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val url = product.marketUrl // Замените на нужный URL
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    context.startActivity(intent)  // Открывает ссылку в браузере по умолчанию
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Купить")
-                            }
-                            Button(
-                                onClick = {
-                                    val intent = Intent(context,AR::class.java)
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("AR")
-                            }
-                        }
-                    }
-
-
+        NavigationBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            containerColor = MaterialTheme.colorScheme.onPrimary
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val url = product.marketUrl
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Купить")
+                }
+                Button(
+                    onClick = { openAR(product.modelUrl) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("AR")
                 }
             }
         }
     }
+}
 
 @Composable
-fun PriceBox(price: Double, discountPrice: Double?) {
+fun PriceBox(price: Int, discountPrice: Int?) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -210,7 +219,7 @@ fun DescriptionBox(description: String) {
             .fillMaxWidth()
             .padding(vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(8.dp)) {
             Text(
                 text = "О товаре",
                 fontSize = 18.sp,
@@ -234,7 +243,7 @@ fun CharacteristicsBox(characteristics: Map<String, String>) {
             .fillMaxWidth()
             .padding(vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(8.dp)) {
             Text(
                 text = "Характеристики",
                 fontSize = 18.sp,
